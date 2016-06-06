@@ -1,0 +1,142 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <avr/wdt.h>
+#include <avr/sleep.h>
+#include <EEPROM.h>
+
+#define Serialprint2(x,y) Serial.print(x,y)
+#define Serialprintln2(x,y) Serial.println(x,y)
+#define Serialprint(x) Serial.print(x)
+#define Serialprintln(x) Serial.println(x)
+#define Serialbegin(x) Serial.begin(x)
+#define Serialflush() Serial.flush()
+
+//global variables
+
+//1-Wire Bus
+#define TEMPERATURE_PRECISION 12
+#define NR_BUSLINES 2
+#define NR_SENSORS_PER_BUS 10
+
+OneWire oW[NR_BUSLINES];
+#OneWire oneWire(6); //Anschluss an Pin 6
+#OneWire oneWire2(7);
+DallasTemperature sensor[NR_BUSLINES];
+#DallasTemperature sensors(&oneWire); // Pass our oneWire reference to Dallas Temperature. 
+#DallasTemperature sensors2(&oneWire2);
+DeviceAddress Thermometer[NR_BUSLINES][NR_SENSORS_PER_BUS]; // arrays to hold device addresses, NrBus, NrThermo
+byte NrOfSensorsFound[NR_BUSLINES];
+
+//1-Wire Bus: function to print a device address
+void printAddress(DeviceAddress deviceAddress)
+{
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    // zero pad the address if necessary
+    if (deviceAddress[i] < 16) Serialprint("0");
+    Serialprint2(deviceAddress[i], HEX);
+  }
+}
+
+//****************************************************************
+// Init Routines
+//****************************************************************
+
+//One Wire Setup
+void InitOneWireTempMeasurement(DallasTemperature *myS, byte BusNr) {
+   //1-Wire Init
+  
+  // Start up the library
+  myS->begin();
+  myS->setWaitForConversion(0);
+  
+  // locate devices on the bus
+	NrOfSensorsFound[BusNr] = myS->getDeviceCount();
+  Serialprint("Found ");
+  Serialprint2(NrOfSensorsFound[BusNr], DEC);
+  Serialprintln(" devices.");
+
+  // report parasite power requirements
+  Serialprint("Parasite power is: "); 
+  if (myS->isParasitePowerMode()) {Serialprintln("ON");}
+  else Serialprintln("OFF");
+
+	for (byte sn=0; sn<NR_SENSORS_PER_BUS; sn++) {
+		Serialprint("Bus ");
+		Serialprint(BusNr);
+		Serialprint(" Device ");
+		Serialprint(sn);
+		Serialprint(": ");
+
+		if (!myS->getAddress(Thermometer[BusNr][sn], sn)) {
+			Serialprintln("no sensor.");
+		} else {
+
+			// show the addresses we found on the bus
+			printAddress(Thermometer[BusNr][sn]);
+
+			// set the resolution
+			myS->setResolution(Thermometer[BusNr][sn], TEMPERATURE_PRECISION);
+			Serialprint(" Resolution: ");
+			Serialprintln2(myS->getResolution(Thermometer[BusNr][sn]), DEC);
+		}
+	}
+}
+
+
+//********************************************************************
+//Measurement Routines
+//********************************************************************
+void DoOneWireTempMeasurementStep1(DallasTemperature *myS) {
+  //1-Wire Bus
+  // call sensors.requestTemperatures() to issue a global temperature 
+  // request to all devices on the bus
+  myS->requestTemperatures();
+}
+
+//Between Step 1 and Step 2 necessary:
+//  delay(750);
+void DoOneWireTempMeasurementStep2(DallasTemperature *myS, byte BusNr) {
+	float tempC;
+	for (byte sn=0; sn<NrOfSensorsFound[BusNr]; sn++) {
+		tempC = myS->getTempC(Thermometer[BusNr][sn]);
+		Serialprint("Bus ");
+		Serialprint(BusNr);
+		Serialprint(" Device ");
+		Serialprint(sn);
+		Serialprint(": ");
+		Serialprintln2(tempC,3);
+	}
+}
+//********************************************************************
+
+
+void setup() {
+	for (byte i=0; i<NR_BUSLINES; i++) {
+		NrOfSensorsFound[i] = 0;
+	}
+
+  Serialbegin(57600);
+  Serialprintln("\nReadout 1Wire Sensors");
+
+	for (int i=0; i<NR_BUSLINES; i++) {
+		InitOneWireTempMeasurement(i);
+	}
+#  InitOneWireTempMeasurement(&sensors2, 1);
+}
+//********************************************************************
+
+
+void loop() {
+
+	Serialprintln("Start");
+	DoOneWireTempMeasurementStep1(&sensors);
+	DoOneWireTempMeasurementStep1(&sensors2);
+	delay(750);
+	DoOneWireTempMeasurementStep2(&sensors, 0);        
+	DoOneWireTempMeasurementStep2(&sensors2, 1);
+	Serialprintln("Completed");
+  
+	Serialflush();
+	delay(1000);
+}
